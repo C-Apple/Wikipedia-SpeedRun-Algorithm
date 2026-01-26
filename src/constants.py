@@ -1,0 +1,28 @@
+from pathlib import Path
+
+#embedding structure
+VOCAB_SIZE = 10000
+EMBEDDING_DIM = 300
+PADDING_IDX = 0
+UNKNOWN_IDX = 1
+MAX_SEQ_LENGTH = 500
+MIN_FREQ = 2
+WINDOW = 5
+MAX_LINES = 2000000
+
+#training parameters
+LEARNING_RATE = 0.001
+BATCH_SIZE = 128
+EPOCHS = 5
+
+#nn parameters
+#HIDDEN_DIM = 128 #no hidden layer?
+
+#path
+DATASET_PATH = "emmermarcell/wikipedia-corpus-2023-03-01"
+USE_FILES = ["wikipedia_processed_1.txt"]
+CACHE_DIR = Path("./dataset_cache")
+EXTRACT_DIR = CACHE_DIR / "extracted"
+EXTRACT_DIR.mkdir(parents=True, exist_ok=True)
+
+
