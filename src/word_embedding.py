@@ -42,7 +42,7 @@ class SkipGramNegSampling(nn.Module):
 
         pos_logits = (u * v_pos).sum(dim=1)
         neg_logits = torch.bmm(v_neg, u.unsqueeze(2)).squeeze(2)
-
+        
         loss = -(F.logsigmoid(pos_logits) + F.logsigmoid(-neg_logits).sum(dim=1)).mean()
 
         return loss

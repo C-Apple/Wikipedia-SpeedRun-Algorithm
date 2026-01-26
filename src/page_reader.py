@@ -12,7 +12,7 @@ import bisect
 
 
 #hyperparameters
-from src.constants import WINDOW, MAX_LINES, MIN_FREQ, PADDING_IDX, UNKNOWN_IDX, MAX_SEQ_LENGTH, BATCH_SIZE, DATASET_PATH, CACHE_DIR, EXTRACT_DIR, USE_FILES
+from src.constants import WINDOW, MAX_LINES, MIN_FREQ, PADDING_IDX, UNKNOWN_IDX, MAX_SEQ_LENGTH, BATCH_SIZE, DATASET_PATH, CACHE_DIR, EXTRACT_DIR, USE_FILES, NEG_K
 
 PADDING_TOKEN = '<PAD>'
 UNKNOWN_TOKEN = '<UNK>'
@@ -160,25 +160,27 @@ class SGNSDataset(Dataset):
             torch.tensor(neg, dtype=torch.long),
         )
     
-def make_dataloader(dataset, batch_size, shuffle=True, num_workers=0):
-    return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers)
+def make_dataloader(dataset, batch_size, shuffle=True, num_workers=4):
+    persistent_workers = num_workers > 0
+    return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers, persistent_workers=persistent_workers)
 
-def build_sgns_dataloader(corpus, window=MIN_FREQ, neg_k=5, min_freq=MIN_FREQ, batch_size=BATCH_SIZE, shuffle=True, num_workers=0):
+def build_sgns_dataloader(corpus, window=MIN_FREQ, neg_k=NEG_K, min_freq=MIN_FREQ, batch_size=BATCH_SIZE, shuffle=True, num_workers=0):
     #1) Build vocab
     word_to_id, id_to_word, counts = build_vocabulary(corpus, min_freq)
-    print("Vocab Size:", len(word_to_id))
+    print("[DONE] Vocab Size:", len(word_to_id))
     #2) Numericalize corpus
     tokenized_doc = numericalize_corpus(corpus, word_to_id)
-
+    print("[DONE] Tokenization Complete")
     #3) Generate (center, context) pairs
     #pairs = generate_pairs(tokenized_doc.flatten().tolist(), window=window)
 
     #4) sampling neg distribution
     neg_probabilities = neg_probs(counts, word_to_id)
-
+    print("[DONE] Negative Sampling Probabilities Computed")
     #5) Create Dataset and DataLoader
     dataset = SGNSDataset(tokenized_doc, neg_probabilities, neg_k, window=window)
     dataloader = make_dataloader(dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers)
+    print("[DONE] DataLoader Created")
 
     center, context, neg = next(iter(dataloader))
     print(center.shape, context.shape, neg.shape)
@@ -248,7 +250,7 @@ def load_dataset(dataset_path=DATASET_PATH, extract_dir=EXTRACT_DIR, use_files=U
                 samples.append(line)
 
                 # progress heartbeat
-                if len(samples) % 1000 == 0:
+                if len(samples) % 10000 == 0:
                     print(f"[INFO] Collected {len(samples):,} lines so far")
 
                 # early exit
