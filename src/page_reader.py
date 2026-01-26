@@ -136,6 +136,8 @@ class SGNSDataset(Dataset):
     
     def __getitem__(self, idx):
         # Map global idx -> (doc_i, pos_i)
+        #if idx == 0:
+            #print("[DEBUG] Getting item at idx=0")
         doc_i = bisect.bisect_right(self.cum, idx)
         prev_cum = int(self.cum[doc_i - 1]) if doc_i > 0 else 0
         pos_i = int(idx - prev_cum)
@@ -147,24 +149,33 @@ class SGNSDataset(Dataset):
         left = max(0, pos_i - self.window)
         right = min(len(doc), pos_i + self.window + 1)
 
-        candidates = list(range(left, pos_i)) + list(range(pos_i + 1, right))
-        ctx_pos = candidates[np.random.randint(len(candidates))]
+        left_num = pos_i - left
+        right_num = right - pos_i - 1
+        total_contexts = left_num + right_num
+
+        r = np.random.randint(total_contexts)
+        if r < left_num:
+            ctx_pos = pos_i - (r + 1)
+        else:
+            ctx_pos = pos_i + (r - left_num + 1)
+
         context = doc[ctx_pos]
 
         # Sample negatives
-        neg = np.random.choice(self.vocab_size, size=self.neg_k, p=self.neg_probs)
+        #neg = np.random.choice(self.vocab_size, size=self.neg_k, p=self.neg_probs)
 
         return (
-            torch.tensor(center, dtype=torch.long),
-            torch.tensor(context, dtype=torch.long),
-            torch.tensor(neg, dtype=torch.long),
+            int(center), int(context)
         )
     
-def make_dataloader(dataset, batch_size, shuffle=True, num_workers=4):
+def make_dataloader(dataset, batch_size, shuffle=True, num_workers=2, pin_memory=True, collate_fn=None):
     persistent_workers = num_workers > 0
-    return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers, persistent_workers=persistent_workers)
+    prefetch_factor = 2 if num_workers > 0 else 0
+    collate_fn = collate_fn
 
-def build_sgns_dataloader(corpus, window=MIN_FREQ, neg_k=NEG_K, min_freq=MIN_FREQ, batch_size=BATCH_SIZE, shuffle=True, num_workers=0):
+    return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers, persistent_workers=persistent_workers, pin_memory=pin_memory, prefetch_factor=prefetch_factor, collate_fn=collate_fn)
+
+def build_sgns_dataloader(corpus, window=WINDOW, neg_k=NEG_K, min_freq=MIN_FREQ, batch_size=BATCH_SIZE, shuffle=True, num_workers=4):
     #1) Build vocab
     word_to_id, id_to_word, counts = build_vocabulary(corpus, min_freq)
     print("[DONE] Vocab Size:", len(word_to_id))
@@ -177,9 +188,13 @@ def build_sgns_dataloader(corpus, window=MIN_FREQ, neg_k=NEG_K, min_freq=MIN_FRE
     #4) sampling neg distribution
     neg_probabilities = neg_probs(counts, word_to_id)
     print("[DONE] Negative Sampling Probabilities Computed")
+    neg_probs_t = torch.tensor(neg_probabilities, dtype=torch.float32)
     #5) Create Dataset and DataLoader
+
+    collator = SGNSCollator(neg_probs_t, neg_k)
+
     dataset = SGNSDataset(tokenized_doc, neg_probabilities, neg_k, window=window)
-    dataloader = make_dataloader(dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers)
+    dataloader = make_dataloader(dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers, collate_fn=collator)
     print("[DONE] DataLoader Created")
 
     center, context, neg = next(iter(dataloader))
@@ -261,3 +276,16 @@ def load_dataset(dataset_path=DATASET_PATH, extract_dir=EXTRACT_DIR, use_files=U
     dataloader, word_to_id, id_to_word = build_sgns_dataloader(samples)
     
     return dataloader, word_to_id, id_to_word
+class SGNSCollator:
+    def __init__(self, neg_probs_t: torch.Tensor, K: int):
+        self.neg_probs_t = neg_probs_t
+        self.K = K
+
+    def __call__(self, batch):
+        centers, contexts = zip(*batch)
+        centers = torch.tensor(centers, dtype=torch.long)
+        contexts = torch.tensor(contexts, dtype=torch.long)
+
+        B = centers.size(0)
+        neg = torch.multinomial(self.neg_probs_t, num_samples=B*self.K, replacement=True).view(B, self.K)
+        return centers, contexts, neg

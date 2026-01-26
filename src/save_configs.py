@@ -9,7 +9,7 @@ def save_checkpoint(
     id_to_word: dict,
     config: dict,
     optimizer=None,
-    epoch: int | None = None,
+    total_epochs: int | None = None,
     last_loss: float | None = None,
 ):
     save_dir = Path(save_dir)
@@ -19,7 +19,7 @@ def save_checkpoint(
     ckpt = {
         "model_state_dict": model.state_dict(),
         "config": config,
-        "epoch": epoch,
+        "epochs": total_epochs,
         "last_loss": last_loss,
     }
     if optimizer is not None:

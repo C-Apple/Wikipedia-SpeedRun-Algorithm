@@ -26,8 +26,8 @@ def parse_args():
 class SkipGramNegSampling(nn.Module):
     def __init__(self, vocab_size=VOCAB_SIZE, embedding_dim=EMBEDDING_DIM):
         super(SkipGramNegSampling, self).__init__()
-        self.in_embedding = nn.Embedding(vocab_size, embedding_dim, padding_idx=PADDING_IDX)
-        self.out_embedding = nn.Embedding(vocab_size, embedding_dim, padding_idx=PADDING_IDX)
+        self.in_embedding = nn.Embedding(vocab_size, embedding_dim, padding_idx=PADDING_IDX, sparse=True)
+        self.out_embedding = nn.Embedding(vocab_size, embedding_dim, padding_idx=PADDING_IDX, sparse=True)
         
         self._init_weights()
 
@@ -42,7 +42,7 @@ class SkipGramNegSampling(nn.Module):
 
         pos_logits = (u * v_pos).sum(dim=1)
         neg_logits = torch.bmm(v_neg, u.unsqueeze(2)).squeeze(2)
-        
+
         loss = -(F.logsigmoid(pos_logits) + F.logsigmoid(-neg_logits).sum(dim=1)).mean()
 
         return loss
@@ -52,14 +52,17 @@ class SkipGramNegSampling(nn.Module):
     
     def fit(self, dataloader, device, optimizer, total_epochs=EPOCHS, log_every=100):
         self.to(device)
-        start = time.time()
+        t0 = time.time()
+        start = t0
         for epoch in range(1, total_epochs + 1):
+            t0 = time.perf_counter()
+            last_idx  = 0
             self.train()
             total_loss = 0
             for batch_idx, (center_words, context_words, negative_words) in enumerate(dataloader):
-                center_words = center_words.to(device)
-                context_words = context_words.to(device)
-                negative_words = negative_words.to(device)
+                center_words = center_words.to(device, non_blocking=True)
+                context_words = context_words.to(device, non_blocking=True)
+                negative_words = negative_words.to(device, non_blocking=True)
 
                 optimizer.zero_grad(set_to_none=True)
                 loss = self(center_words, context_words, negative_words)
@@ -69,16 +72,20 @@ class SkipGramNegSampling(nn.Module):
                 total_loss += loss.item()
 
                 if batch_idx % log_every == 0:
+                    torch.cuda.synchronize() if device.type == 'cuda' else None
                     avg = total_loss / (batch_idx + 1)
-                    elapsed = time.time() - start
-                    batches_per_sec = batch_idx / elapsed
-
+                    t1 = time.perf_counter()
+                    elapsed = t1 - t0
+                    batches_per_sec = (batch_idx - last_idx) / elapsed
+                    last_idx = batch_idx
+                    t0 = t1
                     print(
                         f"[Epoch {epoch} / {total_epochs}] "
                         f"Batch {batch_idx}/{len(dataloader)} | "
                         f"Loss={avg:.4f} | "
                         f"{batches_per_sec:.2f} batches/s"
                     )
+
             print(f"Epoch {epoch} / {total_epochs}: loss={avg:.4f}, time={time.time()-start:.1f}s")
     
 def main():
@@ -97,7 +104,7 @@ def main():
 
     model = SkipGramNegSampling(vocab_size=len(word_to_id), embedding_dim=args.embedding_dim).to(device)
 
-    optimizer = optim.Adam(model.parameters(), lr=args.learning_rate)
+    optimizer = optim.SparseAdam(model.parameters(), lr=args.learning_rate)
     
     model.fit(dataloader, device, optimizer=optimizer, total_epochs=args.epochs)
     

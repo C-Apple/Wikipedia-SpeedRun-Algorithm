@@ -8,16 +8,13 @@ UNKNOWN_IDX = 1
 MAX_SEQ_LENGTH = 500
 MIN_FREQ = 2
 WINDOW = 5
-MAX_LINES = 250_000  #max lines to read from corpus
+MAX_LINES = 50_000  #max lines to read from corpus
 NEG_K = 3
 
 #training parameters
 LEARNING_RATE = 0.0015
 BATCH_SIZE = 512
-EPOCHS = 5
-
-#nn parameters
-#HIDDEN_DIM = 128 #no hidden layer?
+EPOCHS = 1
 
 #path
 DATASET_PATH = "emmermarcell/wikipedia-corpus-2023-03-01"
