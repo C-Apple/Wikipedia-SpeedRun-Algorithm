@@ -1,0 +1,5 @@
+﻿# training artifacts
+runs/
+*.pt
+*.pth
+*.ckpt
