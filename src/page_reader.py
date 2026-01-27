@@ -8,6 +8,7 @@ import kagglehub
 from pathlib import Path
 import zipfile
 import bisect
+import re
 
 
 
@@ -16,6 +17,7 @@ from src.constants import WINDOW, MAX_LINES, MIN_FREQ, PADDING_IDX, UNKNOWN_IDX,
 
 PADDING_TOKEN = '<PAD>'
 UNKNOWN_TOKEN = '<UNK>'
+TOKEN_RE = re.compile(r"[a-z]+(?:'[a-z]+)?")
 #insert page reading later
 
 def neg_probs(counts, word_to_id, power=0.75):
@@ -53,68 +55,8 @@ def pad_sequence(sequence, max_length=MAX_SEQ_LENGTH, padding_value=PADDING_IDX)
         return sequence + [padding_value] * (max_length - len(sequence))
 
 def tokenize_string(input_string):
-    return input_string.lower().split()
+    return TOKEN_RE.findall(input_string.lower())
 
-def build_vocabulary(corpus, min_freq=2):
-    counter = Counter()
-    word_to_id = {PADDING_TOKEN: PADDING_IDX, UNKNOWN_TOKEN: UNKNOWN_IDX} #padding idx = 0
-    id_to_word = {PADDING_IDX: PADDING_TOKEN, UNKNOWN_IDX: UNKNOWN_TOKEN}
-    for document in corpus:
-        tokens = tokenize_string(document)
-        counter.update(tokens)
-
-    for word, freq in counter.items():
-        if freq >= min_freq and word not in word_to_id:
-            idx = word_to_id.__len__()
-            word_to_id[word] = idx
-            id_to_word[idx] = word
-    
-    return word_to_id, id_to_word, counter
-
-def numericalize_corpus(corpus, word_to_id):
-    tokenized_doc = []
-    for document in corpus:
-        tokens = tokenize_string(document)
-        token_ids = [word_to_id.get(token, UNKNOWN_IDX) for token in tokens]
-        padded_ids = pad_sequence(token_ids)
-        tokenized_doc.append(padded_ids)
-    return tokenized_doc
-
-# def generate_pairs(token_ids, window):
-#     pairs = []
-#     n = len(token_ids)
-#     for i in range(n):
-#         center = token_ids[i]
-#         left = max(0, i-window)
-#         right = min(n, i+window+1)
-#         for j in range(left, right):
-#             if j == i:
-#                 continue
-#             pos = token_ids[j]
-#             pairs.append((center, pos))
-#     return pairs
-
-def vocab_tensorize(document, word_to_id):
-    tokens = tokenize_string(document)
-    token_ids = [word_to_id.get(token, UNKNOWN_IDX) for token in tokens]
-    padded_ids = pad_sequence(token_ids)
-    return torch.tensor(padded_ids, dtype=torch.long)
-
-def save_vocab(path, word_to_id, max_length, padding_idx=PADDING_IDX, unk_idx=UNKNOWN_IDX, min_freq=2):
-    payload = {
-        "word_to_id": word_to_id,
-        "max_length": max_length,
-        "padding_idx": padding_idx,
-        "unk_idx": unk_idx,
-        "min_freq": min_freq,
-    }
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(payload, f)
-
-def load_vocab(path):
-    with open(path, "r", encoding="utf-8") as f:
-        payload = json.load(f)
-    return payload
 class SGNSDataset(Dataset):
     def __init__(self, tokenized_docs, neg_probs, neg_k, window=WINDOW, padding_idx=PADDING_IDX):
         # 1) remove PAD from each doc
@@ -161,13 +103,58 @@ class SGNSDataset(Dataset):
 
         context = doc[ctx_pos]
 
-        # Sample negatives
-        #neg = np.random.choice(self.vocab_size, size=self.neg_k, p=self.neg_probs)
-
         return (
             int(center), int(context)
         )
+
+def build_vocabulary(corpus, min_freq=2):
+    counter = Counter()
+    word_to_id = {PADDING_TOKEN: PADDING_IDX, UNKNOWN_TOKEN: UNKNOWN_IDX} #padding idx = 0
+    id_to_word = {PADDING_IDX: PADDING_TOKEN, UNKNOWN_IDX: UNKNOWN_TOKEN}
+    for document in corpus:
+        tokens = tokenize_string(document)
+        counter.update(tokens)
+
+    for word, freq in sorted(counter.items(), key=lambda x: (-x[1], x[0])):
+        if freq >= min_freq and word not in word_to_id:
+            idx = word_to_id.__len__()
+            word_to_id[word] = idx
+            id_to_word[idx] = word
     
+    return word_to_id, id_to_word, counter
+
+def numericalize_corpus(corpus, word_to_id):
+    tokenized_doc = []
+    for document in corpus:
+        tokens = tokenize_string(document)
+        token_ids = [word_to_id.get(token, UNKNOWN_IDX) for token in tokens]
+        padded_ids = pad_sequence(token_ids)
+        tokenized_doc.append(padded_ids)
+        if len(tokenized_doc) % 100_000 == 0:
+            print(f"[INFO] Tokenized {len(tokenized_doc):,} documents so far")
+    return tokenized_doc
+
+def vocab_tensorize(document, word_to_id):
+    tokens = tokenize_string(document)
+    token_ids = [word_to_id.get(token, UNKNOWN_IDX) for token in tokens]
+    padded_ids = pad_sequence(token_ids)
+    return torch.tensor(padded_ids, dtype=torch.long)
+
+def save_vocab(path, word_to_id, max_length, padding_idx=PADDING_IDX, unk_idx=UNKNOWN_IDX, min_freq=2):
+    payload = {
+        "word_to_id": word_to_id,
+        "max_length": max_length,
+        "padding_idx": padding_idx,
+        "unk_idx": unk_idx,
+        "min_freq": min_freq,
+    }
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(payload, f)
+
+def load_vocab(path):
+    with open(path, "r", encoding="utf-8") as f:
+        payload = json.load(f)
+    return payload
 def make_dataloader(dataset, batch_size, shuffle=True, num_workers=2, pin_memory=True, collate_fn=None):
     persistent_workers = num_workers > 0
     prefetch_factor = 2 if num_workers > 0 else 0
@@ -175,24 +162,43 @@ def make_dataloader(dataset, batch_size, shuffle=True, num_workers=2, pin_memory
 
     return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers, persistent_workers=persistent_workers, pin_memory=pin_memory, prefetch_factor=prefetch_factor, collate_fn=collate_fn)
 
-def build_sgns_dataloader(corpus, window=WINDOW, neg_k=NEG_K, min_freq=MIN_FREQ, batch_size=BATCH_SIZE, shuffle=True, num_workers=4):
+def counts_from_corpus(corpus, word_to_id):
+    counts = Counter()
+    for doc in corpus:
+        for tok in tokenize_string(doc):
+            if tok in word_to_id and tok not in (PADDING_TOKEN, UNKNOWN_TOKEN):
+                counts[tok] += 1
+    return counts
+
+
+def build_sgns_dataloader(corpus, vocab_override=None, window=WINDOW, neg_k=NEG_K, min_freq=MIN_FREQ, batch_size=BATCH_SIZE, shuffle=True, num_workers=4):
     #1) Build vocab
-    word_to_id, id_to_word, counts = build_vocabulary(corpus, min_freq)
-    print("[DONE] Vocab Size:", len(word_to_id))
+    if vocab_override is not None:
+        word_to_id, id_to_word = vocab_override
+        counts = counts_from_corpus(corpus, word_to_id)
+        print(f"[INFO] Using overridden vocabulary of size {len(word_to_id):,}.")
+    else:
+        print("[INFO] Building Vocabulary...")
+        word_to_id, id_to_word, counts = build_vocabulary(corpus, min_freq)
+        print(f"[DONE] Vocab Size: {len(word_to_id):,}.")
     #2) Numericalize corpus
+    print("[INFO] Tokenizing Corpus...")
     tokenized_doc = numericalize_corpus(corpus, word_to_id)
     print("[DONE] Tokenization Complete")
     #3) Generate (center, context) pairs
     #pairs = generate_pairs(tokenized_doc.flatten().tolist(), window=window)
 
     #4) sampling neg distribution
+    print("[INFO] Computing Negative Sampling Probabilities...")
     neg_probabilities = neg_probs(counts, word_to_id)
     print("[DONE] Negative Sampling Probabilities Computed")
     neg_probs_t = torch.tensor(neg_probabilities, dtype=torch.float32)
     #5) Create Dataset and DataLoader
-
+    print("[INFO] Creating Collator...")
     collator = SGNSCollator(neg_probs_t, neg_k)
+    print("[DONE] Collator Created")
 
+    print("[INFO] Creating DataLoader...")
     dataset = SGNSDataset(tokenized_doc, neg_probabilities, neg_k, window=window)
     dataloader = make_dataloader(dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers, collate_fn=collator)
     print("[DONE] DataLoader Created")
@@ -202,9 +208,20 @@ def build_sgns_dataloader(corpus, window=WINDOW, neg_k=NEG_K, min_freq=MIN_FREQ,
 
     return dataloader, word_to_id, id_to_word
 
-
 def has_any_files(d):
     return any(p.is_file() for p in d.rglob("*"))
+
+def merge_vocabularies(first_word_to_id, second_word_to_id, first_id_to_word, second_id_to_word):
+    merged_word_to_id = dict(first_word_to_id)
+    merged_id_to_word = dict(first_id_to_word)
+
+    for word, idx in second_word_to_id.items():
+        if word not in merged_word_to_id:
+            new_idx = len(merged_word_to_id)
+            merged_word_to_id[word] = new_idx
+            merged_id_to_word[new_idx] = word
+
+    return merged_word_to_id, merged_id_to_word
 
 #download dataset from kaggle
 def load_dataset(dataset_path=DATASET_PATH, extract_dir=EXTRACT_DIR, use_files=USE_FILES, max_lines=MAX_LINES):
@@ -265,17 +282,19 @@ def load_dataset(dataset_path=DATASET_PATH, extract_dir=EXTRACT_DIR, use_files=U
                 samples.append(line)
 
                 # progress heartbeat
-                if len(samples) % 10000 == 0:
+                if len(samples) % 1_000_000 == 0:
                     print(f"[INFO] Collected {len(samples):,} lines so far")
 
                 # early exit
                 if max_lines is not None and len(samples) >= max_lines:
                     print(f"[DONE] Reached max_lines = {max_lines:,}")
                     break
-
+                #else:
+                #    print(f"[DONE] Read total {len(samples):,} lines from {name}")
+    print(f"Total samples collected: {len(samples):,}.")
     dataloader, word_to_id, id_to_word = build_sgns_dataloader(samples)
     
-    return dataloader, word_to_id, id_to_word
+    return samples, dataloader, word_to_id, id_to_word
 class SGNSCollator:
     def __init__(self, neg_probs_t: torch.Tensor, K: int):
         self.neg_probs_t = neg_probs_t

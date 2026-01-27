@@ -30,27 +30,39 @@ def save_checkpoint(
     # 2) Save vocab as JSON (human-readable)
     with open(save_dir / "vocab.json", "w", encoding="utf-8") as f:
         json.dump(
-            {"word_to_id": word_to_id, "id_to_word": {str(k): v for k, v in id_to_word.items()}},
+            {"vocab_size": len(word_to_id),"word_to_id": word_to_id, "id_to_word": {str(k): v for k, v in id_to_word.items()}},
             f
         )
 
     print(f"Saved checkpoint to: {save_dir}")
 
-def load_checkpoint(load_dir: str | Path, model_class):
+def load_checkpoint(load_dir: str | Path, model_class, map_location="cpu"):
     load_dir = Path(load_dir)
 
-    ckpt = torch.load(load_dir / "checkpoint.pt", map_location="cpu")
-    with open(load_dir / "vocab.json", "r", encoding="utf-8") as f:
+    ckpt_path = load_dir if load_dir.suffix == ".pt" else (load_dir / "checkpoint.pt")
+    vocab_path = load_dir / "vocab.json" if load_dir.suffix != ".pt" else (load_dir.parent / "vocab.json")
+
+    ckpt = torch.load(ckpt_path, map_location=map_location, weights_only=True)
+    print("Checkpoint keys:", ckpt.keys())\
+
+    config = ckpt["config"]
+    with open(vocab_path, "r", encoding="utf-8") as f:
         vocab = json.load(f)
 
     word_to_id = vocab["word_to_id"]
+
     id_to_word = {int(k): v for k, v in vocab["id_to_word"].items()}
 
-    config = ckpt["config"]
-
-    # Recreate model with saved config
-    model = model_class(vocab_size=config["vocab_size"], embedding_dim=config["embedding_dim"])
+    model = model_class(
+        vocab_size=config["vocab_size"],
+        embedding_dim=config["embedding_dim"],
+    )
     model.load_state_dict(ckpt["model_state_dict"])
+    model.to(map_location)
     model.eval()
 
     return model, word_to_id, id_to_word, config, ckpt
+
+def print_vector(model, word_id):
+    embedding = model.in_embedding.weight[word_id]
+    print(embedding)

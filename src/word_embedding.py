@@ -6,12 +6,12 @@ import numpy as np
 import argparse
 import time
 
-from src.page_reader import SGNSDataset, load_dataset, build_sgns_dataloader
+from src.page_reader import SGNSDataset, load_dataset, build_sgns_dataloader, merge_vocabularies
 
-from src.save_configs import save_checkpoint
+from src.save_configs import load_checkpoint, save_checkpoint
 
 #hyperparameters
-from src.constants import WINDOW, MIN_FREQ, MAX_SEQ_LENGTH, USE_FILES, VOCAB_SIZE, EMBEDDING_DIM, PADDING_IDX, EPOCHS, LEARNING_RATE, BATCH_SIZE, DATASET_PATH
+from src.constants import MAX_LINES, LOAD_MODEL_PATH, SAVE_DIR, WINDOW, MIN_FREQ, MAX_SEQ_LENGTH, USE_FILES, VOCAB_SIZE, EMBEDDING_DIM, PADDING_IDX, EPOCHS, LEARNING_RATE, BATCH_SIZE, DATASET_PATH
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Skip-gram with Negative Sampling Word Embedding Model")
@@ -22,7 +22,10 @@ def parse_args():
     parser.add_argument('--batch_size', type=int, default=BATCH_SIZE)
     parser.add_argument('--neg_samples', type=int, default=5, help='Number of negative samples per positive sample')
     parser.add_argument('--seed', type = int, default=0)
+    parser.add_argument('--load_model', action="store_true", help='Use path to a pre-trained model checkpoint to load')
+    parser.add_argument('--max_lines', type=int, default=MAX_LINES, help='Maximum number of lines to read from the dataset')
     return parser.parse_args()
+
 class SkipGramNegSampling(nn.Module):
     def __init__(self, vocab_size=VOCAB_SIZE, embedding_dim=EMBEDDING_DIM):
         super(SkipGramNegSampling, self).__init__()
@@ -46,11 +49,8 @@ class SkipGramNegSampling(nn.Module):
         loss = -(F.logsigmoid(pos_logits) + F.logsigmoid(-neg_logits).sum(dim=1)).mean()
 
         return loss
-
-    def sigmoid(self, x):
-        return 1 / (1 + np.exp(-x))
     
-    def fit(self, dataloader, device, optimizer, total_epochs=EPOCHS, log_every=100):
+    def fit(self, dataloader, device, optimizer, total_epochs=EPOCHS, log_every=1_000):
         self.to(device)
         t0 = time.time()
         start = t0
@@ -87,7 +87,66 @@ class SkipGramNegSampling(nn.Module):
                     )
 
             print(f"Epoch {epoch} / {total_epochs}: loss={avg:.4f}, time={time.time()-start:.1f}s")
-    
+
+    @staticmethod
+    def expand_embeddings_inplace(model, new_vocab_size, init_std=0.01):
+        old_vocab_size, emb_dim = model.in_embedding.weight.shape
+        if new_vocab_size <= old_vocab_size:
+            return
+
+        device = model.in_embedding.weight.device
+
+        new_in = nn.Embedding(new_vocab_size, emb_dim, padding_idx=PADDING_IDX, sparse=True).to(device)
+        new_out = nn.Embedding(new_vocab_size, emb_dim, padding_idx=PADDING_IDX, sparse=True).to(device)
+
+        with torch.no_grad():
+            new_in.weight[:old_vocab_size].copy_(model.in_embedding.weight)
+            new_out.weight[:old_vocab_size].copy_(model.out_embedding.weight)
+
+            nn.init.normal_(new_in.weight[old_vocab_size:], mean=0.0, std=init_std)
+            nn.init.zeros_(new_out.weight[old_vocab_size:])
+
+        model.in_embedding = new_in
+        model.out_embedding = new_out
+
+def expand_embeddings_inplace(model, new_vocab_size, init_std=0.01):
+    old_vocab_size, emb_dim = model.in_embedding.weight.shape
+    if new_vocab_size <= old_vocab_size:
+        return
+
+    device = model.in_embedding.weight.device
+
+    new_in = nn.Embedding(new_vocab_size, emb_dim, padding_idx=PADDING_IDX, sparse=True).to(device)
+    new_out = nn.Embedding(new_vocab_size, emb_dim, padding_idx=PADDING_IDX, sparse=True).to(device)
+
+    with torch.no_grad():
+        new_in.weight[:old_vocab_size].copy_(model.in_embedding.weight)
+        new_out.weight[:old_vocab_size].copy_(model.out_embedding.weight)
+
+        nn.init.normal_(new_in.weight[old_vocab_size:], mean=0.0, std=init_std)
+        nn.init.zeros_(new_out.weight[old_vocab_size:])
+
+    model.in_embedding = new_in
+    model.out_embedding = new_out
+
+def check_batch_vs_model(dataloader, model, device):
+    model_vocab = model.in_embedding.num_embeddings
+    batch = next(iter(dataloader))
+    centers, contexts, neg = batch
+
+    max_id = max(
+        int(centers.max()),
+        int(contexts.max()),
+        int(neg.max())
+    )
+
+    print(f"[DEBUG] model_vocab={model_vocab:,}  max_batch_id={max_id:,}")
+    if max_id >= model_vocab:
+        raise ValueError(f"Batch has id {max_id} but model vocab is {model_vocab}")
+
+
+
+
 def main():
     args = parse_args()
     
@@ -98,14 +157,24 @@ def main():
     
     print(f"Using device: {device}")
 
-    dataloader, word_to_id, id_to_word = load_dataset()
+    samples, dataloader, word_to_id, id_to_word = load_dataset(max_lines=args.max_lines)
 
     torch.manual_seed(args.seed)
-
-    model = SkipGramNegSampling(vocab_size=len(word_to_id), embedding_dim=args.embedding_dim).to(device)
-
+    if (args.load_model is True) and (LOAD_MODEL_PATH is not None):
+        print(f"[INFO] Loading model from {LOAD_MODEL_PATH}...")
+        model, word_to_id_ckpt, id_to_word_ckpt, config, ckpt = load_checkpoint(LOAD_MODEL_PATH, SkipGramNegSampling, map_location=device)
+        merged_word_to_id, merged_id_to_word = merge_vocabularies(word_to_id_ckpt, word_to_id, id_to_word_ckpt, id_to_word)
+        dataloader, word_to_id, id_to_word = build_sgns_dataloader(samples, vocab_override=(merged_word_to_id, merged_id_to_word))
+        expanded_vocab_size = len(word_to_id)
+        expand_embeddings_inplace(model, expanded_vocab_size)
+        print("[DONE] Model Loaded.")
+    else:
+        model = SkipGramNegSampling(vocab_size=len(word_to_id), embedding_dim=args.embedding_dim).to(device)
     optimizer = optim.SparseAdam(model.parameters(), lr=args.learning_rate)
-    
+    print("[DEBUG] len(word_to_id)=", len(word_to_id))
+    print("[DEBUG] model_vocab=", model.in_embedding.num_embeddings)
+
+    check_batch_vs_model(dataloader, model, device)
     model.fit(dataloader, device, optimizer=optimizer, total_epochs=args.epochs)
     
     config = {
@@ -121,7 +190,7 @@ def main():
     }
 
     save_checkpoint(
-        save_dir="./runs/sgns_wiki",
+        save_dir=SAVE_DIR,
         model=model,
         word_to_id=word_to_id,
         id_to_word=id_to_word,
