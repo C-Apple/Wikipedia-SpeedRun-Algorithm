@@ -1,5 +1,5 @@
-﻿# training artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
 runs/
-*.pt
-*.pth
-*.ckpt
+dataset_cache/
