@@ -85,6 +85,22 @@ Run the navigation algorithm
 python main.py
 ```
 
+### Run the browser speedrun test bench
+
+This repository includes a standard-library browser frontend for trying real Wikipedia speedruns. It accepts a start Wikipedia URL/title, an end URL/title, and an optional local trained model checkpoint folder or `.pt` path. While a run is active, the UI shows the timer, current page, highest-ranked hyperlink, current path, and top scored candidates. Results are saved to `runs/speedrun_bench/results.jsonl` and graphed in the browser.
+
+```bash
+python -m src.speedrun_frontend
+```
+
+Open `http://127.0.0.1:8765`, configure a run, click **Run speedrun**, or click **Run 1000 random speedruns** to benchmark random built-in start/end pairs and average the results.
+
+You can still run the automated test suite directly from the terminal:
+
+```bash
+pytest
+```
+
 ---
 
 ## What I Learned
