@@ -4,7 +4,6 @@ import json
 from torch.utils.data import Dataset
 import numpy as np
 from torch.utils.data import DataLoader
-import kagglehub
 from pathlib import Path
 import zipfile
 import bisect
@@ -193,6 +192,8 @@ def has_any_files(d):
 
 #download dataset from kaggle
 def load_dataset(dataset_path=DATASET_PATH, extract_dir=EXTRACT_DIR, use_files=USE_FILES, max_lines=MAX_LINES):
+    import kagglehub
+
     extract_dir.mkdir(parents=True, exist_ok=True)
     
     download_path = Path(kagglehub.dataset_download(dataset_path))
