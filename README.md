@@ -85,6 +85,22 @@ Run the navigation algorithm
 python main.py
 ```
 
+### Run tests from a browser
+
+This repository includes a small standard-library web frontend for launching the pytest suite and viewing the captured output.
+
+```bash
+python -m src.test_frontend
+```
+
+Open `http://127.0.0.1:8765`, choose the test files you want to run, and click **Run selected tests**.
+
+You can still run the full suite directly from the terminal:
+
+```bash
+pytest
+```
+
 ---
 
 ## What I Learned
