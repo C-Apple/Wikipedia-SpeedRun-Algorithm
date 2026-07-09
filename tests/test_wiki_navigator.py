@@ -3,6 +3,7 @@ import math
 import numpy as np
 
 from src.wiki_navigator import (
+    WikipediaClient,
     build_title_scorer,
     find_closest_hyperlink,
     navigate,
@@ -84,3 +85,20 @@ def test_title_cooccurrence_corpus_pairs_source_and_link_titles():
     corpus = title_cooccurrence_corpus({"The White House": ["Barack Obama", "United States"]})
 
     assert corpus == ["the white house barack obama", "the white house united states"]
+
+
+def test_wikipedia_client_caches_hyperlinks_by_title_and_limit():
+    class CachedClient(WikipediaClient):
+        def __init__(self):
+            super().__init__(api_url="https://example.invalid", max_retries=0)
+            self.calls = 0
+
+        def _get_json(self, params):
+            self.calls += 1
+            return {"query": {"pages": {"1": {"links": [{"title": "A"}, {"title": "B"}]}}}}
+
+    client = CachedClient()
+
+    assert client.get_hyperlinks("Start", limit=2) == ["A", "B"]
+    assert client.get_hyperlinks("Start", limit=2) == ["A", "B"]
+    assert client.calls == 1
