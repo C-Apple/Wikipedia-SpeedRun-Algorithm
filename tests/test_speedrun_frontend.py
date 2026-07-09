@@ -80,7 +80,6 @@ def test_save_load_and_summarize_results(tmp_path):
         "avg_links_visited": 1.0,
     }
 
-
 def test_render_index_contains_speedrun_controls():
     html = render_index()
 
@@ -88,3 +87,16 @@ def test_render_index_contains_speedrun_controls():
     assert "Run 1000 random speedruns" in html
     assert "Local model checkpoint" in html
     assert "/api/jobs" in html
+
+
+def test_bench_job_json_includes_live_path_and_top_links():
+    from src.speedrun_frontend import BenchJob
+
+    job = BenchJob(id="job-1", mode="single", total_runs=1)
+    job.current_path = ["Start", "Middle"]
+    job.current_top_links = [{"title": "Middle", "score": 0.9}]
+
+    payload = job.to_json()
+
+    assert payload["current_path"] == ["Start", "Middle"]
+    assert payload["current_top_links"] == [{"title": "Middle", "score": 0.9}]
