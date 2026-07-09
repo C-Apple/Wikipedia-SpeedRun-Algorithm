@@ -87,6 +87,9 @@ def test_render_index_contains_speedrun_controls():
     assert "Run 1000 random speedruns" in html
     assert "Local model checkpoint" in html
     assert "/api/jobs" in html
+    assert "startLiveTimer" in html
+    assert "rank-bar" in html
+    assert "scoreColor" in html
 
 
 def test_bench_job_json_includes_live_path_and_top_links():

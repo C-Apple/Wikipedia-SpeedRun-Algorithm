@@ -10,6 +10,7 @@ string-similarity fallback.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from email.utils import parsedate_to_datetime
 from difflib import SequenceMatcher
 import json
 import logging
@@ -47,11 +48,27 @@ class NavigationResult:
 
 
 class WikipediaClient:
-    """Small client for the MediaWiki API link list endpoint."""
+    """Small client for the MediaWiki API link list endpoint.
 
-    def __init__(self, api_url: str = "https://en.wikipedia.org/w/api.php", timeout: float = 10.0):
+    The frontend can request the same page repeatedly during experiments. This
+    client keeps a small in-memory cache and backs off on HTTP 429 responses so
+    a good run is reusable instead of immediately causing repeated rate-limit
+    failures.
+    """
+
+    def __init__(
+        self,
+        api_url: str = "https://en.wikipedia.org/w/api.php",
+        timeout: float = 10.0,
+        *,
+        max_retries: int = 3,
+        backoff_seconds: float = 1.0,
+    ):
         self.api_url = api_url
         self.timeout = timeout
+        self.max_retries = max(0, max_retries)
+        self.backoff_seconds = max(0.0, backoff_seconds)
+        self._cache: dict[tuple[str, int], list[str]] = {}
 
     def get_hyperlinks(self, page_title: str, limit: int = 500) -> list[str]:
         """Return article-title hyperlinks from ``page_title``.
@@ -63,6 +80,10 @@ class WikipediaClient:
 
         if not page_title or not page_title.strip():
             raise ValueError("page_title must be a non-empty string")
+
+        cache_key = (normalize_title(page_title), max(1, limit))
+        if cache_key in self._cache:
+            return list(self._cache[cache_key])
 
         remaining = max(1, limit)
         params = {
@@ -98,16 +119,38 @@ class WikipediaClient:
             params.update(continuation)
             params["pllimit"] = min(remaining, 500)
 
+        self._cache[cache_key] = list(links)
         return links
 
     def _get_json(self, params: dict[str, object]) -> dict[str, object]:
         url = f"{self.api_url}?{urlencode(params)}"
-        request = Request(url, headers={"User-Agent": "Wikipedia-SpeedRun-Algorithm/0.1"})
-        try:
-            with urlopen(request, timeout=self.timeout) as response:
-                return json.loads(response.read().decode("utf-8"))
-        except (HTTPError, URLError, TimeoutError) as exc:
-            raise ConnectionError(f"Unable to fetch Wikipedia links: {exc}") from exc
+        request = Request(url, headers={"User-Agent": "Wikipedia-SpeedRun-Algorithm/0.1 (educational speedrun test bench)"})
+        for attempt in range(self.max_retries + 1):
+            try:
+                with urlopen(request, timeout=self.timeout) as response:
+                    return json.loads(response.read().decode("utf-8"))
+            except HTTPError as exc:
+                if exc.code != 429 or attempt >= self.max_retries:
+                    raise ConnectionError(f"Unable to fetch Wikipedia links: {exc}") from exc
+                time.sleep(self._retry_delay(exc, attempt))
+            except (URLError, TimeoutError) as exc:
+                if attempt >= self.max_retries:
+                    raise ConnectionError(f"Unable to fetch Wikipedia links: {exc}") from exc
+                time.sleep(self.backoff_seconds * (2**attempt))
+        raise ConnectionError("Unable to fetch Wikipedia links after retries")
+
+    def _retry_delay(self, exc: HTTPError, attempt: int) -> float:
+        retry_after = exc.headers.get("Retry-After") if exc.headers else None
+        if retry_after:
+            try:
+                return max(0.0, float(retry_after))
+            except ValueError:
+                try:
+                    retry_at = parsedate_to_datetime(retry_after)
+                    return max(0.0, retry_at.timestamp() - time.time())
+                except (TypeError, ValueError):
+                    pass
+        return self.backoff_seconds * (2**attempt)
 
 
 def normalize_title(title: str) -> str:
