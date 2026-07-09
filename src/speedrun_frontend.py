@@ -86,8 +86,6 @@ class BenchJob:
     current_page: str = ""
     best_link: str | None = None
     elapsed_seconds: float = 0.0
-    current_path: list[str] = field(default_factory=list)
-    current_top_links: list[dict[str, float | str]] = field(default_factory=list)
     results: list[SpeedrunResult] = field(default_factory=list)
     error: str | None = None
 
@@ -101,8 +99,6 @@ class BenchJob:
             "current_page": self.current_page,
             "best_link": self.best_link,
             "elapsed_seconds": self.elapsed_seconds,
-            "current_path": self.current_path,
-            "current_top_links": self.current_top_links,
             "error": self.error,
             "results": [result.to_json() for result in self.results[-25:]],
             "summary": summarize_results(self.results),
@@ -263,16 +259,10 @@ def run_job(job: BenchJob, config: dict[str, Any]) -> None:
                 start_page = parse_wikipedia_title(config["start"])
                 target_page = parse_wikipedia_title(config["target"])
 
-            job.current_path = [start_page]
-            job.current_top_links = []
-
             def update(snapshot: StepSnapshot) -> None:
                 job.current_page = snapshot.page
                 job.best_link = snapshot.best_link
                 job.elapsed_seconds = snapshot.elapsed_seconds
-                job.current_top_links = snapshot.top_links
-                if snapshot.best_link:
-                    job.current_path = [*job.current_path, snapshot.best_link]
 
             result = run_speedrun(
                 start_page,
@@ -337,7 +327,7 @@ const $=id=>document.getElementById(id);
 function payload() {{ return {{start:$('start').value,target:$('target').value,model_path:$('model').value,max_steps:+$('maxSteps').value,link_limit:+$('linkLimit').value,randomize:$('randomize').checked}}; }}
 async function start(mode) {{ const res=await fetch('/api/jobs',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{...payload(),runs: mode==='batch'?1000:1,mode}})}}); activeJob=(await res.json()).id; $('status').textContent='Running '+mode; clearInterval(poller); poller=setInterval(poll,700); poll(); }}
 async function poll() {{ if(!activeJob) return; const job=await (await fetch('/api/jobs/'+activeJob)).json(); drawJob(job); if(['completed','failed'].includes(job.status)) {{ clearInterval(poller); await loadResults(); }} }}
-function drawJob(job) {{ $('status').textContent=`${{job.status}} (${{job.current_run}}/${{job.total_runs}})`+(job.error?' — '+job.error:''); $('timer').textContent=job.elapsed_seconds.toFixed(2)+'s'; $('page').textContent=job.current_page||'—'; $('best').textContent=job.best_link||'—'; const last=job.results.at(-1); const path=job.current_path?.length?job.current_path:(last?last.path:[]); $('path').textContent=path.length?path.join(' → '):'No run yet.'; const top=job.current_top_links?.length?job.current_top_links:(last?.steps?.at(-1)?.top_links||[]); $('top').innerHTML=top.length ? top.map(l=>`<div>${{l.title}} <small>(${{Number(l.score).toFixed(3)}})</small></div>`).join('') : 'No ranking yet.'; updateSummary(job.summary); }}
+function drawJob(job) {{ $('status').textContent=`${{job.status}} (${{job.current_run}}/${{job.total_runs}})`+(job.error?' — '+job.error:''); $('timer').textContent=job.elapsed_seconds.toFixed(2)+'s'; $('page').textContent=job.current_page||'—'; $('best').textContent=job.best_link||'—'; const last=job.results.at(-1); if(last) {{ $('path').textContent=last.path.join(' → '); const step=last.steps.at(-1); $('top').innerHTML=step ? step.top_links.map(l=>`<div>${{l.title}} <small>(${{Number(l.score).toFixed(3)}})</small></div>`).join('') : '—'; }} updateSummary(job.summary); }}
 function updateSummary(s) {{ $('avgTime').textContent=s.runs?s.avg_seconds.toFixed(2)+'s':'—'; $('avgLinks').textContent=s.runs?s.avg_links_visited.toFixed(1):'—'; $('success').textContent=s.runs?Math.round(s.success_rate*100)+'%':'—'; }}
 async function loadResults() {{ const data=await (await fetch('/api/results')).json(); updateSummary(data.summary); drawChart(data.results.slice(-100)); }}
 function drawChart(rows) {{ const c=$('chart'), ctx=c.getContext('2d'); ctx.clearRect(0,0,c.width,c.height); ctx.fillStyle='#94a3b8'; ctx.fillText('Last '+rows.length+' saved runs: cyan=time seconds, purple=links visited',20,24); if(!rows.length) return; const maxT=Math.max(...rows.map(r=>r.total_seconds),1), maxL=Math.max(...rows.map(r=>r.links_visited),1); rows.forEach((r,i)=>{{ const x=40+i*((c.width-80)/Math.max(rows.length-1,1)); ctx.fillStyle='#38bdf8'; ctx.fillRect(x-3,c.height-30-(r.total_seconds/maxT)*(c.height-70),6,(r.total_seconds/maxT)*(c.height-70)); ctx.fillStyle='#a78bfa'; ctx.fillRect(x+4,c.height-30-(r.links_visited/maxL)*(c.height-70),6,(r.links_visited/maxL)*(c.height-70)); }}); }}
