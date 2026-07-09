@@ -78,7 +78,6 @@ If you only want to run the browser frontend without a trained model, the fronte
 ### Launch the browser speedrun test bench
 
 Start the local web server from the repository root:
-<<<<<<< ours
 
 ```bash
 python -m src.speedrun_frontend --host 127.0.0.1 --port 8765
@@ -124,53 +123,6 @@ List saved results:
 curl http://127.0.0.1:8765/api/results
 ```
 
-=======
-
-```bash
-python -m src.speedrun_frontend --host 127.0.0.1 --port 8765
-```
-
-Then open this URL in your browser:
-
-```text
-http://127.0.0.1:8765
-```
-
-The UI lets you:
-
-- enter a start Wikipedia URL/title and an end Wikipedia URL/title;
-- optionally enter a local trained model path;
-- run one speedrun with **Run speedrun**;
-- run a 1000-run random benchmark with **Run 1000 random speedruns**;
-- watch the timer, current page, highest-ranked hyperlink, current path, and top ranked candidates update while a run is active;
-- reload and graph saved results.
-
-Model path formats supported by the frontend:
-
-```text
-runs/sgns_wiki_v2
-runs/sgns_wiki_v2/checkpoint.pt
-/absolute/path/to/a/checkpoint/folder
-/absolute/path/to/checkpoint.pt
-```
-
-When you point at a `checkpoint.pt` file, keep the matching `vocab.json` beside it. When you point at a folder, that folder should contain both `checkpoint.pt` and `vocab.json`. Leave the model field blank to use the string-similarity fallback scorer.
-
-Results are appended to:
-
-```text
-runs/speedrun_bench/results.jsonl
-```
-
-### Optional API checks
-
-List saved results:
-
-```bash
-curl http://127.0.0.1:8765/api/results
-```
-
->>>>>>> theirs
 Start one run through the API:
 
 ```bash
@@ -193,6 +145,7 @@ curl http://127.0.0.1:8765/api/jobs/<job-id>
 - A 1000-run benchmark can take a long time because each run fetches live Wikipedia links.
 
 ### Run automated tests
+
 <<<<<<< ours
 
 ```bash
@@ -209,9 +162,9 @@ python -m src.test_frontend
 
 Open `http://127.0.0.1:8765`, choose the test files you want to run, and click **Run selected tests**.
 
-You can still run the full suite directly from the terminal:
-=======
->>>>>>> theirs
+# You can still run the full suite directly from the terminal:
+
+> > > > > > > theirs
 
 ```bash
 pytest
