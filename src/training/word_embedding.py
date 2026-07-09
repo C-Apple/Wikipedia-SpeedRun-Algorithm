@@ -6,12 +6,12 @@ import numpy as np
 import argparse
 import time
 
-from src.page_reader import SGNSDataset, load_dataset, build_sgns_dataloader, merge_vocabularies
+from src.training.page_reader import SGNSDataset, load_dataset, build_sgns_dataloader, merge_vocabularies
 
-from src.save_configs import load_checkpoint, save_checkpoint
+from src.training.save_configs import load_checkpoint, save_checkpoint
 
 #hyperparameters
-from src.constants import MAX_LINES, LOAD_MODEL_PATH, SAVE_DIR, WINDOW, MIN_FREQ, MAX_SEQ_LENGTH, USE_FILES, VOCAB_SIZE, EMBEDDING_DIM, PADDING_IDX, EPOCHS, LEARNING_RATE, BATCH_SIZE, DATASET_PATH
+from src.config import MAX_LINES, LOAD_MODEL_PATH, SAVE_DIR, WINDOW, MIN_FREQ, MAX_SEQ_LENGTH, USE_FILES, VOCAB_SIZE, EMBEDDING_DIM, PADDING_IDX, EPOCHS, LEARNING_RATE, BATCH_SIZE, DATASET_PATH
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Skip-gram with Negative Sampling Word Embedding Model")
@@ -143,9 +143,6 @@ def check_batch_vs_model(dataloader, model, device):
     print(f"[DEBUG] model_vocab={model_vocab:,}  max_batch_id={max_id:,}")
     if max_id >= model_vocab:
         raise ValueError(f"Batch has id {max_id} but model vocab is {model_vocab}")
-
-
-
 
 def main():
     args = parse_args()

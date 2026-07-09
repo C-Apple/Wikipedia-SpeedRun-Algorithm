@@ -1,6 +1,6 @@
 import numpy as np
-from src.page_reader import neg_probs, build_vocabulary, PADDING_TOKEN, UNKNOWN_TOKEN
-from src.constants import PADDING_IDX, UNKNOWN_IDX
+from src.training.page_reader import neg_probs, build_vocabulary, PADDING_TOKEN, UNKNOWN_TOKEN
+from src.config import PADDING_IDX, UNKNOWN_IDX
 
 def test_neg_probs_normalizes_and_excludes_special_tokens():
     

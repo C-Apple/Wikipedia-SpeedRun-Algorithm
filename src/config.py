@@ -26,5 +26,5 @@ SAVE_DIR = "./runs/sgns_wiki_v4"
 
 LOAD_MODEL_PATH = "runs/sgns_wiki_v2"
 
-START_PAGE = "Python (programming language)"
-END_PAGE = "Artificial intelligence"
+START_PAGE = "Lake Tahoe"
+END_PAGE = "William Maxwell (American writer)"

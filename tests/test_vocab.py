@@ -1,5 +1,5 @@
-from src.page_reader import build_vocabulary, PADDING_TOKEN, UNKNOWN_TOKEN
-from src.constants import PADDING_IDX, UNKNOWN_IDX
+from src.training.page_reader import build_vocabulary, PADDING_TOKEN, UNKNOWN_TOKEN
+from src.config import PADDING_IDX, UNKNOWN_IDX
 
 def test_build_vocabulary_includes_special_tokens():
     corpus = ["Hello world", "hello there"]

@@ -3,7 +3,7 @@ import math
 import numpy as np
 import pytest
 
-from src.wiki_navigator import (
+from src.speedrunning.wiki_navigator import (
     build_title_scorer,
     cosine_similarity,
     find_closest_hyperlink,

@@ -1,6 +1,6 @@
 import pytest
 
-from src.speedrun_frontend import (
+from src.speedrunning.speedrun_frontend import (
     SpeedrunResult,
     StepSnapshot,
     load_results,
@@ -93,7 +93,7 @@ def test_render_index_contains_speedrun_controls():
 
 
 def test_bench_job_json_includes_live_path_and_top_links():
-    from src.speedrun_frontend import BenchJob
+    from src.speedrunning.speedrun_frontend import BenchJob
 
     job = BenchJob(id="job-1", mode="single", total_runs=1)
     job.current_path = ["Start", "Middle"]

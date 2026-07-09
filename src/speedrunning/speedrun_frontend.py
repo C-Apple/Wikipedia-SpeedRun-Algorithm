@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import parse_qs, unquote, urlparse
 
-from src.wiki_navigator import WikipediaClient, build_title_scorer, find_closest_hyperlink, normalize_title
+from src.speedrunning.wiki_navigator import WikipediaClient, build_title_scorer, find_closest_hyperlink, normalize_title
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
@@ -136,8 +136,8 @@ def load_checkpoint_scorer(model_path: str | None, target_page: str) -> tuple[Ca
     path = Path(model_path).expanduser()
     if not path.exists():
         raise FileNotFoundError(f"Model path does not exist: {path}")
-    from src.save_configs import load_checkpoint
-    from src.word_embedding import SkipGramNegSampling
+    from src.training.save_configs import load_checkpoint
+    from src.training.word_embedding import SkipGramNegSampling
 
     model, word_to_id, _id_to_word, _config, _ckpt = load_checkpoint(path, SkipGramNegSampling)
     matrix = model.in_embedding.weight.detach().cpu().numpy()

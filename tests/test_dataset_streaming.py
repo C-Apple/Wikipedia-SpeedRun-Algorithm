@@ -1,7 +1,7 @@
 import numpy as np
 import torch
 
-from src.page_reader import SGNSDataset, SGNSCollator
+from src.training.page_reader import SGNSDataset, SGNSCollator
 
 
 def test_streaming_dataset_returns_expected_types_and_ranges():

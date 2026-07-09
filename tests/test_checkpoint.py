@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 from pathlib import Path
-from src.save_configs import save_checkpoint, load_checkpoint
+from src.training.save_configs import save_checkpoint, load_checkpoint
 
 class TinyModel(nn.Module):
     def __init__(self, vocab_size=7, embedding_dim=5):
