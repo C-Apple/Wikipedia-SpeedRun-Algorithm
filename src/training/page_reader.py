@@ -9,15 +9,19 @@ import zipfile
 import bisect
 import re
 
-
-
 #hyperparameters
-from src.config import WINDOW, MAX_LINES, MIN_FREQ, PADDING_IDX, UNKNOWN_IDX, MAX_SEQ_LENGTH, BATCH_SIZE, DATASET_PATH, CACHE_DIR, EXTRACT_DIR, USE_FILES, NEG_K
+from src.config import WIKIPEDIA_JSONL_PATH, WINDOW, MAX_LINES, MIN_FREQ, PADDING_IDX, UNKNOWN_IDX, MAX_SEQ_LENGTH, BATCH_SIZE, DATASET_PATH, CACHE_DIR, EXTRACT_DIR, USE_FILES, NEG_K
 
 PADDING_TOKEN = '<PAD>'
 UNKNOWN_TOKEN = '<UNK>'
 TOKEN_RE = re.compile(r"[a-z]+(?:'[a-z]+)?")
 #insert page reading later
+
+ENTITY_PREFIX = "wiki::"
+
+
+def is_entity_token(token: str) -> bool:
+    return token.startswith(ENTITY_PREFIX)
 
 def neg_probs(counts, word_to_id, power=0.75):
     vocab_size = sum(counts.values())
@@ -106,38 +110,154 @@ class SGNSDataset(Dataset):
             int(center), int(context)
         )
 
-def build_vocabulary(corpus, min_freq=2):
+def build_vocabulary(tokenized_docs, min_freq=MIN_FREQ, entity_min_freq=2):
     counter = Counter()
-    word_to_id = {PADDING_TOKEN: PADDING_IDX, UNKNOWN_TOKEN: UNKNOWN_IDX} #padding idx = 0
-    id_to_word = {PADDING_IDX: PADDING_TOKEN, UNKNOWN_IDX: UNKNOWN_TOKEN}
-    for document in corpus:
-        tokens = tokenize_string(document)
+
+    word_to_id = {
+        PADDING_TOKEN: PADDING_IDX,
+        UNKNOWN_TOKEN: UNKNOWN_IDX,
+    }
+
+    id_to_word = {
+        PADDING_IDX: PADDING_TOKEN,
+        UNKNOWN_IDX: UNKNOWN_TOKEN,
+    }
+
+    for tokens in tokenized_docs:
         counter.update(tokens)
 
-    for word, freq in sorted(counter.items(), key=lambda x: (-x[1], x[0])):
-        if freq >= min_freq and word not in word_to_id:
-            idx = word_to_id.__len__()
-            word_to_id[word] = idx
-            id_to_word[idx] = word
-    
+    for token, freq in sorted(
+        counter.items(),
+        key=lambda item: (-item[1], item[0]),
+    ):
+        required_freq = (
+            entity_min_freq
+            if is_entity_token(token)
+            else min_freq
+        )
+
+        if freq < required_freq:
+            continue
+
+        if token not in word_to_id:
+            idx = len(word_to_id)
+            word_to_id[token] = idx
+            id_to_word[idx] = token
+
     return word_to_id, id_to_word, counter
 
-def numericalize_corpus(corpus, word_to_id):
-    tokenized_doc = []
-    for document in corpus:
-        tokens = tokenize_string(document)
-        token_ids = [word_to_id.get(token, UNKNOWN_IDX) for token in tokens]
+def numericalize_corpus(tokenized_docs, word_to_id):
+    numericalized_docs = []
+
+    for tokens in tokenized_docs:
+        token_ids = [
+            word_to_id.get(token, UNKNOWN_IDX)
+            for token in tokens
+        ]
+
         padded_ids = pad_sequence(token_ids)
-        tokenized_doc.append(padded_ids)
-        if len(tokenized_doc) % 100_000 == 0:
-            print(f"[INFO] Tokenized {len(tokenized_doc):,} documents so far")
-    return tokenized_doc
+        numericalized_docs.append(padded_ids)
+
+        if len(numericalized_docs) % 100_000 == 0:
+            print(
+                f"[INFO] Numericalized "
+                f"{len(numericalized_docs):,} documents"
+            )
+
+    return numericalized_docs
 
 def vocab_tensorize(document, word_to_id):
-    tokens = tokenize_string(document)
-    token_ids = [word_to_id.get(token, UNKNOWN_IDX) for token in tokens]
+    if isinstance(document, str):
+        tokens = tokenize_string(document)
+    else:
+        tokens = document
+    
+    token_ids = [
+        word_to_id.get(token, UNKNOWN_IDX)
+        for token in tokens
+    ]
+
     padded_ids = pad_sequence(token_ids)
-    return torch.tensor(padded_ids, dtype=torch.long)
+
+    return torch.tensor(
+        padded_ids,
+        dtype=torch.long,
+    )
+
+def load_wikipedia_jsonl(
+    path,
+    max_articles=MAX_LINES,
+):
+    path = Path(path)
+
+    if not path.exists():
+        raise FileNotFoundError(
+            f"Could not find parsed Wikipedia file: {path}"
+        )
+
+    tokenized_docs = []
+    article_titles = []
+    article_links = []
+
+    with path.open(
+        "r",
+        encoding="utf-8",
+        errors="ignore",
+    ) as file:
+        for line_number, line in enumerate(file, start=1):
+            line = line.strip()
+
+            if not line:
+                continue
+
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError as exc:
+                raise ValueError(
+                    f"Invalid JSON on line {line_number} of {path}"
+                ) from exc
+
+            tokens = record.get("tokens")
+
+            if not isinstance(tokens, list):
+                raise ValueError(
+                    f"Article on line {line_number} "
+                    f"does not contain a valid 'tokens' list. "
+                    f"Regenerate the JSONL with token extraction enabled."
+                )
+
+            tokens = [
+                token
+                for token in tokens
+                if isinstance(token, str) and token
+            ]
+
+            if len(tokens) < 2:
+                continue
+
+            for chunk in chunk_tokens(tokens):
+                tokenized_docs.append(chunk)
+            article_titles.append(record.get("title"))
+            article_links.append(record.get("links", []))
+
+            if len(tokenized_docs) % 10_000 == 0:
+                print(
+                    f"[INFO] Loaded "
+                    f"{len(tokenized_docs):,} articles"
+                )
+
+            if (
+                max_articles is not None
+                and len(tokenized_docs) >= max_articles
+            ):
+                break
+
+    print(
+        f"[DONE] Loaded "
+        f"{len(tokenized_docs):,} tokenized articles"
+    )
+
+    return tokenized_docs, article_titles, article_links
 
 def save_vocab(path, word_to_id, max_length, padding_idx=PADDING_IDX, unk_idx=UNKNOWN_IDX, min_freq=2):
     payload = {
@@ -154,6 +274,7 @@ def load_vocab(path):
     with open(path, "r", encoding="utf-8") as f:
         payload = json.load(f)
     return payload
+
 def make_dataloader(dataset, batch_size, shuffle=True, num_workers=2, pin_memory=True, collate_fn=None):
     persistent_workers = num_workers > 0
     prefetch_factor = 2 if num_workers > 0 else 0
@@ -161,28 +282,36 @@ def make_dataloader(dataset, batch_size, shuffle=True, num_workers=2, pin_memory
 
     return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers, persistent_workers=persistent_workers, pin_memory=pin_memory, prefetch_factor=prefetch_factor, collate_fn=collate_fn)
 
-def counts_from_corpus(corpus, word_to_id):
+def counts_from_corpus(tokenized_docs, word_to_id):
     counts = Counter()
-    for doc in corpus:
-        for tok in tokenize_string(doc):
-            if tok in word_to_id and tok not in (PADDING_TOKEN, UNKNOWN_TOKEN):
-                counts[tok] += 1
+
+    for tokens in tokenized_docs:
+        for token in tokens:
+            if (
+                token in word_to_id
+                and token not in (
+                    PADDING_TOKEN,
+                    UNKNOWN_TOKEN,
+                )
+            ):
+                counts[token] += 1
+
     return counts
 
 
-def build_sgns_dataloader(corpus, vocab_override=None, window=WINDOW, neg_k=NEG_K, min_freq=MIN_FREQ, batch_size=BATCH_SIZE, shuffle=True, num_workers=4):
+def build_sgns_dataloader(tokenized_docs, vocab_override=None, window=WINDOW, neg_k=NEG_K, min_freq=MIN_FREQ, batch_size=BATCH_SIZE, shuffle=True, num_workers=4):
     #1) Build vocab
     if vocab_override is not None:
         word_to_id, id_to_word = vocab_override
-        counts = counts_from_corpus(corpus, word_to_id)
+        counts = counts_from_corpus(tokenized_docs, word_to_id)
         print(f"[INFO] Using overridden vocabulary of size {len(word_to_id):,}.")
     else:
         print("[INFO] Building Vocabulary...")
-        word_to_id, id_to_word, counts = build_vocabulary(corpus, min_freq)
+        word_to_id, id_to_word, counts = build_vocabulary(tokenized_docs, min_freq)
         print(f"[DONE] Vocab Size: {len(word_to_id):,}.")
-    #2) Numericalize corpus
+    #2) Numericalize tokenized_docs
     print("[INFO] Tokenizing Corpus...")
-    tokenized_doc = numericalize_corpus(corpus, word_to_id)
+    tokenized_doc = numericalize_corpus(tokenized_docs, word_to_id)
     print("[DONE] Tokenization Complete")
     #3) Generate (center, context) pairs
     #pairs = generate_pairs(tokenized_doc.flatten().tolist(), window=window)
@@ -222,80 +351,39 @@ def merge_vocabularies(first_word_to_id, second_word_to_id, first_id_to_word, se
 
     return merged_word_to_id, merged_id_to_word
 
+def chunk_tokens(tokens, chunk_size=MAX_SEQ_LENGTH):
+    return [
+        tokens[start:start + chunk_size]
+        for start in range(0, len(tokens), chunk_size)
+        if len(tokens[start:start + chunk_size]) >= 2
+    ]
+
 #download dataset from kaggle
-def load_dataset(dataset_path=DATASET_PATH, extract_dir=EXTRACT_DIR, use_files=USE_FILES, max_lines=MAX_LINES):
-    import kagglehub
+def load_dataset(
+    dataset_path=WIKIPEDIA_JSONL_PATH,
+    max_lines=MAX_LINES,
+    neg_k=NEG_K,
+):
+    tokenized_docs, article_titles, article_links = (
+        load_wikipedia_jsonl(
+            dataset_path,
+            max_articles=max_lines,
+        )
+    )
 
-    extract_dir.mkdir(parents=True, exist_ok=True)
-    
-    download_path = Path(kagglehub.dataset_download(dataset_path))
-    print("Downloaded to:", download_path)
-    
-    flag = extract_dir / "extracted.flag"
-    if flag.exists() and not has_any_files(extract_dir):
-        flag.unlink()
+    dataloader, word_to_id, id_to_word = (
+        build_sgns_dataloader(
+            tokenized_docs,
+            neg_k=neg_k,
+        )
+    )
 
-    if (not flag.exists() or not has_any_files(extract_dir)):
-            zips = list(download_path.glob("*.zip")) if download_path.is_dir() else []
-            if download_path.is_file() and download_path.suffix == ".zip":
-                zips = [download_path]
-
-            for z in zips:
-                with zipfile.ZipFile(z, "r") as zf:
-                    zf.extractall(extract_dir)
-
-            flag.write_text("ok")
-            print("Unzipped to:", extract_dir)
-    else:
-        print("Already unzipped:", extract_dir)
-        print("Top-level in extract_dir:")
-        if extract_dir.exists():
-            for x in sorted(extract_dir.iterdir())[:50]:
-                print(" -", x.name)
-
-        ext_counts = Counter(p.suffix.lower() for p in extract_dir.rglob("*") if p.is_file())
-        print("Extensions in extract_dir:", ext_counts)
-
-    samples = []
-    root_dir = Path(download_path)
-    print("Using root dir: ", root_dir)
-
-    for name in use_files:
-        matches = list(root_dir.rglob(name))
-        if not matches:
-            # helpful debug: list a few txt files that DO exist
-            txts = list(root_dir.rglob("*.txt"))
-            sample = "\n".join(str(t) for t in txts[:30])
-            raise FileNotFoundError(
-                f"Could not find {name} under {root_dir}.\n"
-                f"Here are some .txt files I *did* find (first 30):\n{sample}"
-            )
-
-        p = matches[0]  # take first match
-
-        print("Reading:", p)
-        with p.open("r", encoding="utf-8", errors="ignore") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-
-                samples.append(line)
-
-                # progress heartbeat
-                if len(samples) % 1_000_000 == 0:
-                    print(f"[INFO] Collected {len(samples):,} lines so far")
-
-                # early exit
-                if max_lines is not None and len(samples) >= max_lines:
-                    print(f"[DONE] Reached max_lines = {max_lines:,}")
-                    break
-                #else:
-                #    print(f"[DONE] Read total {len(samples):,} lines from {name}")
-    print(f"Total samples collected: {len(samples):,}.")
-    dataloader, word_to_id, id_to_word = build_sgns_dataloader(samples)
-    
-    return samples, dataloader, word_to_id, id_to_word
+    return (
+        tokenized_docs,
+        dataloader,
+        word_to_id,
+        id_to_word,
+    )
 class SGNSCollator:
     def __init__(self, neg_probs_t: torch.Tensor, K: int):
         self.neg_probs_t = neg_probs_t

@@ -154,7 +154,7 @@ def main():
     
     print(f"Using device: {device}")
 
-    samples, dataloader, word_to_id, id_to_word = load_dataset(max_lines=args.max_lines)
+    samples, dataloader, word_to_id, id_to_word = load_dataset(max_lines=args.max_lines, neg_k=args.neg_samples)
 
     torch.manual_seed(args.seed)
     if (args.load_model is True) and (LOAD_MODEL_PATH is not None):
