@@ -78,12 +78,7 @@ class WikipediaClient:
         return " ".join(title.replace("_", " ").casefold().split())
 
     def get_hyperlinks(self, page_title: str, limit: int = 500) -> list[str]:
-        """Return article-title hyperlinks from ``page_title``.
-
-        The MediaWiki ``links`` property can be paginated. This method follows
-        continuation tokens, excludes non-article namespaces, and de-duplicates
-        titles while preserving first-seen order.
-        """
+        """Return article-title hyperlinks from ``page_title``."""
 
         if not page_title or not page_title.strip():
             raise ValueError("page_title must be a non-empty string")
@@ -104,11 +99,14 @@ class WikipediaClient:
         }
         links: list[str] = []
         seen: set[str] = set()
-
+        print("Starting while loop")
         while remaining > 0:
+            print("Entered While")
             payload = self._get_json(params)
+            print("JSON Recieved")
             pages = payload.get("query", {}).get("pages", {})
             for page in pages.values():
+                print(f"Page loop number: {page}")
                 for link in page.get("links", []):
                     title = link.get("title")
                     if title and title not in seen:
@@ -125,7 +123,7 @@ class WikipediaClient:
                 break
             params.update(continuation)
             params["pllimit"] = min(remaining, 500)
-
+        print("While loop ended")
         self._cache[cache_key] = list(links)
         return links
 
@@ -133,9 +131,23 @@ class WikipediaClient:
         url = f"{self.api_url}?{urlencode(params)}"
         request = Request(url, headers={"User-Agent": "Wikipedia-SpeedRun-Algorithm/0.1 (educational speedrun test bench)"})
         for attempt in range(self.max_retries + 1):
+            print(f"[HTTP] Attempt {attempt + 1}: {url}")
             try:
+                #print("[HTTP] Calling urlopen...")
                 with urlopen(request, timeout=self.timeout) as response:
-                    return json.loads(response.read().decode("utf-8"))
+                    #print(
+                    #f"[HTTP] Connection opened. "
+                    #f"Status: {response.status}"
+                    #)
+                    #print("[HTTP] Reading response body...")
+                    raw_data = response.read()
+                    #print(f"[HTTP] Read {len(raw_data)} bytes")
+
+                    #print("[HTTP] Decoding JSON...")
+                    result = json.loads(raw_data.decode("utf-8"))
+                    #print("[HTTP] JSON decoded")
+
+                    return result
             except HTTPError as exc:
                 if exc.code != 429 or attempt >= self.max_retries:
                     raise ConnectionError(f"Unable to fetch Wikipedia links: {exc}") from exc

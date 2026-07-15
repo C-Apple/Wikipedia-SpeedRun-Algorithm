@@ -506,7 +506,7 @@ def run_job(
                 job.current_top_links = []
 
             def update(snapshot: StepSnapshot) -> None:
-                """Receive one completed step from run_speedrun."""
+                #Receive one completed step from run_speedrun.
 
                 with JOBS_LOCK:
                     job.current_page = snapshot.page
@@ -560,7 +560,6 @@ def run_job(
             job.status = "failed"
             job.error = str(exc)
 
-
 def start_job(
     config: dict[str, Any],
     total_runs: int,
@@ -589,9 +588,6 @@ def start_job(
     thread.start()
 
     return job
-
-
-
 class SpeedrunFrontendHandler(BaseHTTPRequestHandler):
     server_version = "WikipediaSpeedRunBench/1.0"
 
@@ -643,10 +639,8 @@ class SpeedrunFrontendHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(encoded)
 
-
 def build_server(host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> ThreadingHTTPServer:
     return ThreadingHTTPServer((host, port), SpeedrunFrontendHandler)
-
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Launch the Wikipedia speedrun benchmark UI")

@@ -27,7 +27,7 @@ SAVE_DIR = "./runs/sgns_wiki_v5"
 LOAD_MODEL_PATH = "runs/sgns_wiki_v5"
 
 START_PAGE = "Python (Programming Language)"
-END_PAGE = "Backpack"
+END_PAGE = "Cognition"
 
 LINK_LIMIT = 1000
 
